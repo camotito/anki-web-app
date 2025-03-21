@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Práctica de Tarjetas</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .card {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            margin: 20px auto;
+            max-width: 600px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        button {
+            margin: 5px;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: opacity 0.3s;
+        }
+        button:hover {
+            opacity: 0.8;
+        }
+        #show-answer { background: #4CAF50; color: white; }
+        #again { background: #f44336; color: white; }
+        #hard { background: #ff9800; color: white; }
+        #good { background: #2196F3; color: white; }
+        #easy { background: #4CAF50; color: white; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <h1>Práctica de Tarjetas</h1>
+    
+    <div class="card">
+        <p id="question">Cargando...</p>
+        <p id="answer" class="hidden"></p>
+    </div>
+    
+    <button id="show-answer" onclick="showAnswer()" class="hidden">Mostrar Respuesta</button>
+    
+    <div id="response-buttons" class="hidden">
+        <button id="again" onclick="answerCard(1)">Again</button>
+        <button id="hard" onclick="answerCard(2)">Hard</button>
+        <button id="good" onclick="answerCard(3)">Good</button>
+        <button id="easy" onclick="answerCard(4)">Easy</button>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:5000';
+        let currentCardId;
+        let currentAnswer;
+
+        async function startPractice() {
+            const deckName = prompt("Introduce el nombre del mazo:");
+            const response = await fetch(`${API_URL}/start-practice/${deckName}`);
+            const data = await response.json();
+            
+            if (data.error) {
+                alert(data.error);
+                return;
+            }
+
+            loadNextCard();
+        }
+
+        async function loadNextCard() {
+            const response = await fetch(`${API_URL}/next-card`);
+            const data = await response.json();
+            
+            if (data.error) {
+                alert(data.error);
+                document.getElementById('question').innerText = data.error;
+                document.getElementById('show-answer').classList.add('hidden');
+                document.getElementById('response-buttons').classList.add('hidden');
+                return;
+            }
+
+            currentCardId = data.cardId;
+            currentAnswer = data.answer;  // Guardamos la respuesta
+            
+            document.getElementById('question').innerText = data.question;
+            document.getElementById('answer').innerText = '';
+            document.getElementById('answer').classList.add('hidden');
+            
+            document.getElementById('show-answer').classList.remove('hidden');
+            document.getElementById('response-buttons').classList.add('hidden');
+        }
+
+        function showAnswer() {
+            // Mostramos la respuesta guardada sin hacer una nueva petición
+            document.getElementById('answer').innerText = currentAnswer;
+            document.getElementById('answer').classList.remove('hidden');
+            document.getElementById('show-answer').classList.add('hidden');
+            document.getElementById('response-buttons').classList.remove('hidden');
+        }
+
+        async function answerCard(ease) {
+            await fetch(`${API_URL}/answer-card`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ cardId: currentCardId, ease })
+            });
+            loadNextCard();
+        }
+
+        startPractice();
+    </script>
+</body>
+</html>
