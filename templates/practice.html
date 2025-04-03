@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Anki Web - Practice</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+    <div class="container">
+        <div id="card-container">
+            <div id="card">
+                <div id="front" class="card-side">
+                    <p id="question"></p>
+                </div>
+                <div id="back" class="card-side hidden">
+                    <p id="answer"></p>
+                </div>
+            </div>
+            <button id="show-answer" class="button">Show Answer</button>
+            <div id="answer-buttons" class="hidden" style="display: none;">
+                <button class="button again" onclick="answerCard(1)">Again</button>
+                <button class="button hard" onclick="answerCard(2)">Hard</button>
+                <button class="button good" onclick="answerCard(3)">Good</button>
+                <button class="button easy" onclick="answerCard(4)">Easy</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentCardId = null;
+
+        async function startPractice() {
+            const response = await fetch('/start-practice');
+            const data = await response.json();
+            if (data.success) {
+                loadNextCard();
+            } else {
+                alert('Error loading cards');
+            }
+        }
+
+        async function loadNextCard() {
+            const response = await fetch('/next-card');
+            const data = await response.json();
+            if (response.ok) {
+                currentCardId = data.cardId;
+                document.getElementById('question').textContent = data.question;
+                document.getElementById('answer').textContent = data.answer;
+                document.getElementById('front').classList.remove('hidden');
+                document.getElementById('back').classList.add('hidden');
+                document.getElementById('show-answer').classList.remove('hidden');
+                const answerButtons = document.getElementById('answer-buttons');
+                answerButtons.classList.add('hidden');
+                answerButtons.style.display = 'none';
+            } else {
+                if (data.error === "No hay más tarjetas") {
+                    alert('Practice session completed!');
+                } else {
+                    alert('Error loading next card');
+                }
+            }
+        }
+
+        document.getElementById('show-answer').addEventListener('click', function() {
+            document.getElementById('back').classList.remove('hidden');
+            document.getElementById('show-answer').classList.add('hidden');
+            const answerButtons = document.getElementById('answer-buttons');
+            answerButtons.classList.remove('hidden');
+            answerButtons.style.display = 'block';
+        });
+
+        async function answerCard(ease) {
+            const response = await fetch('/answer-card', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    cardId: currentCardId,
+                    ease: ease
+                })
+            });
+            const data = await response.json();
+            if (data.success) {
+                loadNextCard();
+            } else {
+                alert('Error submitting answer');
+            }
+        }
+
+        // Start practice when page loads
+        window.addEventListener('load', startPractice);
+    </script>
+</body>
+</html>
