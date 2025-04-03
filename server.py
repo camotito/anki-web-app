@@ -6,8 +6,10 @@ from flask_login import LoginManager, UserMixin, login_user, login_required, cur
 from flask_migrate import Migrate
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta
+from livereload import Server
 import requests
 import os
+
 
 app = Flask(__name__, static_folder='static', template_folder='templates')
 CORS(app)
@@ -352,5 +354,9 @@ def sync_cards():
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()
-    app.run(host='0.0.0.0', port=5000)
+    
+    server = Server(app.wsgi_app)
+    server.watch('templates/')
+    server.watch('static/')
+    server.serve(host='0.0.0.0', port=5000, debug=True)
 		
