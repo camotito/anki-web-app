@@ -56,5 +56,11 @@ def create_test_cards(username):
             print("No new cards created (all already exist)")
 
 if __name__ == "__main__":
-    # Create test cards for Sueco user
-    create_test_cards("test_user")
+    import sys
+
+    if len(sys.argv) != 2:
+        print("Usage: python create_test_cards.py <username>")
+        sys.exit(1)
+
+    username = sys.argv[1]
+    create_test_cards(username)
