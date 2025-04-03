@@ -8,21 +8,40 @@
 </head>
 <body>
     <div class="container">
+        <div style="text-align: right; margin-bottom: 20px;">
+            <a href="/logout" class="button">Logout</a>
+        </div>
         <div id="card-container">
-            <div id="card">
-                <div id="front" class="card-side">
-                    <p id="question"></p>
-                </div>
-                <div id="back" class="card-side hidden">
-                    <p id="answer"></p>
-                </div>
+            <div id="no-cards-due" class="hidden" style="text-align: center;">
+                <h2>📅 No Cards Due</h2>
+                <p>You're all caught up! There are no cards due for review right now.</p>
+                {% if next_review %}
+                <p>Next review scheduled for: <strong>{{ next_review.strftime('%Y-%m-%d %H:%M') }}</strong></p>
+                {% else %}
+                <p>All your cards have been reviewed. They will become available based on their spaced repetition schedule.</p>
+                {% endif %}
             </div>
-            <button id="show-answer" class="button">Show Answer</button>
-            <div id="answer-buttons" class="hidden" style="display: none;">
-                <button class="button again" onclick="answerCard(1)">Again</button>
-                <button class="button hard" onclick="answerCard(2)">Hard</button>
-                <button class="button good" onclick="answerCard(3)">Good</button>
-                <button class="button easy" onclick="answerCard(4)">Easy</button>
+            <div id="practice-complete" class="hidden" style="text-align: center;">
+                <h2>🎉 Practice Complete! 🎉</h2>
+                <p>Great job! You've reviewed all your due cards.</p>
+                <p>Come back later when cards are ready for review according to their spaced repetition schedule.</p>
+            </div>
+            <div id="practice-content">
+                <div id="card">
+                    <div id="front" class="card-side">
+                        <p id="question"></p>
+                    </div>
+                    <div id="back" class="card-side hidden">
+                        <p id="answer"></p>
+                    </div>
+                </div>
+                <button id="show-answer" class="button">Show Answer</button>
+                <div id="answer-buttons" class="hidden" style="display: none;">
+                    <button class="button again" onclick="answerCard(1)">Again</button>
+                    <button class="button hard" onclick="answerCard(2)">Hard</button>
+                    <button class="button good" onclick="answerCard(3)">Good</button>
+                    <button class="button easy" onclick="answerCard(4)">Easy</button>
+                </div>
             </div>
         </div>
     </div>
@@ -35,8 +54,11 @@
             const data = await response.json();
             if (data.success) {
                 loadNextCard();
+            } else if (data.error === "No cards due for review") {
+                document.getElementById('practice-content').classList.add('hidden');
+                document.getElementById('no-cards-due').classList.remove('hidden');
             } else {
-                alert('Error loading cards');
+                alert('Error: ' + data.error);
             }
         }
 
@@ -54,10 +76,11 @@
                 answerButtons.classList.add('hidden');
                 answerButtons.style.display = 'none';
             } else {
-                if (data.error === "No hay más tarjetas") {
-                    alert('Practice session completed!');
+                if (data.error === "No more cards") {
+                    document.getElementById('practice-content').classList.add('hidden');
+                    document.getElementById('practice-complete').classList.remove('hidden');
                 } else {
-                    alert('Error loading next card');
+                    alert('Error loading next card: ' + data.error);
                 }
             }
         }
