@@ -40,8 +40,8 @@ class User(UserMixin, db.Model):
 
 class Card(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    front = db.Column(db.Text, nullable=False)  # Question
-    back = db.Column(db.Text, nullable=False)   # Answer
+    spanish = db.Column(db.Text, nullable=False)  # Previously 'front'
+    english = db.Column(db.Text, nullable=False)  # Previously 'back'
     
     # SM2 Algorithm fields
     easiness_factor = db.Column(db.Float, default=2.5)  # Initial EF is 2.5
@@ -179,8 +179,8 @@ def next_card():
     
     return jsonify({
         "cardId": card.id,
-        "question": card.front,
-        "answer": card.back
+        "question": card.spanish,
+        "answer": card.english
     })
 
 
@@ -275,8 +275,8 @@ def list_cards():
     return jsonify({
         'cards': [{
             'id': card.id,
-            'front': card.front,
-            'back': card.back,
+            'spanish': card.spanish,
+            'english': card.english,
             'next_review': card.next_review.isoformat() if card.next_review else None,
             'easiness_factor': card.easiness_factor,
             'interval': card.interval,
@@ -296,8 +296,8 @@ def sync_cards():
         'user_id': 1,
         'cards': [
             {
-                'front': 'Question',
-                'back': 'Answer'
+                'spanish': 'Question',
+                'english': 'Answer'
             },
             ...
         ]
@@ -316,25 +316,25 @@ def sync_cards():
     
     for card_data in data['cards']:
         # Check required fields
-        if 'front' not in card_data or 'back' not in card_data:
+        if 'spanish' not in card_data or 'english' not in card_data:
             continue
         
         # Try to find existing card with same front
         card = Card.query.filter_by(
             user_id=user.id,
-            front=card_data['front']
+            spanish=card_data['spanish']
         ).first()
         
         if card:
             # Update existing card
-            card.back = card_data['back']
+            card.english = card_data['english']
             updated += 1
         else:
             # Create new card
             card = Card(
                 user_id=user.id,
-                front=card_data['front'],
-                back=card_data['back']
+                spanish=card_data['spanish'],
+                english=card_data['english']
             )
             db.session.add(card)
             created += 1
@@ -359,4 +359,3 @@ if __name__ == '__main__':
     server.watch('templates/')
     server.watch('static/')
     server.serve(host='0.0.0.0', port=5000, debug=True)
-		
