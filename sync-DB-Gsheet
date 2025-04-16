@@ -1,0 +1,79 @@
+function syncVocabulary() {
+  // Get the active spreadsheet and its name
+  const doc = SpreadsheetApp.getActiveSpreadsheet();
+  const docName = doc.getName();
+  
+  // Extract username from the last word of document name
+  const username = docName.split(" ").pop();
+  
+  // Get the active sheet and its data
+  const sheet = doc.getActiveSheet();
+  const data = sheet.getDataRange().getValues();
+  
+  // Validate headers
+  const headers = data[0];
+  if (headers[0].toLowerCase() !== "español" || headers[1].toLowerCase() !== "ingles") {
+    throw new Error('Las primeras columnas deben ser "español" e "ingles"');
+  }
+
+  // Extract and filter words, excluding header row
+  const words = data.slice(1)
+    .filter(row => row[0] && row[1]) // Filter out empty rows
+    .map(row => ({
+      spanish: row[0].toString().trim(),
+      english: row[1].toString().trim()
+    }));
+
+  if (words.length === 0) {
+    SpreadsheetApp.getUi().alert(
+      'Sincronización',
+      'No hay palabras para sincronizar.',
+      SpreadsheetApp.getUi().ButtonSet.OK
+    );
+    return;
+  }
+
+  // Prepare API request
+  const apiUrl = "http://localhost:5000/api/cards";
+  const options = {
+    method: "post",
+    contentType: "application/json",
+    headers: {
+      "X-API-Key": "your-secret-api-key-here"
+    },
+    payload: JSON.stringify({
+      username: username,
+      cards: words
+    }),
+    muteHttpExceptions: true
+  };
+  
+  try {
+    const response = UrlFetchApp.fetch(apiUrl, options);
+    const result = JSON.parse(response.getContentText());
+    
+    if (result.success) {
+      SpreadsheetApp.getUi().alert(
+        'Sincronización completada',
+        `Se han añadido ${result.created} nuevas palabras para el usuario "${username}".`,
+        SpreadsheetApp.getUi().ButtonSet.OK
+      );
+    } else {
+      throw new Error(result.error || 'Error desconocido');
+    }
+  } catch (error) {
+    SpreadsheetApp.getUi().alert(
+      'Error',
+      `No se pudo completar la sincronización: ${error.toString()}`,
+      SpreadsheetApp.getUi().ButtonSet.OK
+    );
+  }
+}
+
+// Add custom menu when opening the spreadsheet
+function onOpen() {
+  const ui = SpreadsheetApp.getUi();
+  ui.createMenu('Anki Web')
+    .addItem('Sincronizar vocabulario', 'syncVocabulary')
+    .addToUi();
+}
