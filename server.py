@@ -57,6 +57,10 @@ class Card(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
+    __table_args__ = (
+        db.UniqueConstraint('spanish', 'english', 'user_id', name='unique_card_per_user'),
+    )
+    
     def calculate_next_interval(self, quality):
         """Calculate the next interval using SM2 algorithm.
         
@@ -267,21 +271,31 @@ def require_api_key(f):
     return decorated
 
 
-@app.route('/api/cards', methods=['GET'])
+@app.route('/api/cards/<username>', methods=['GET'])
 @require_api_key
-def list_cards():
-    """List all cards (for syncing with Google Sheets)."""
-    cards = Card.query.all()
+def list_cards(username):
+    """List all cards for a specific user (read-only view for Google Sheets).
+    
+    Args:
+        username: The username whose cards to retrieve
+    Returns:
+        JSON with all cards for the user, sorted by creation date
+    """
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+
+    cards = Card.query.filter_by(user_id=user.id).order_by(Card.created_at.desc()).all()
+    
     return jsonify({
+        'username': username,
+        'total_cards': len(cards),
         'cards': [{
-            'id': card.id,
             'spanish': card.spanish,
             'english': card.english,
+            'created_at': card.created_at.isoformat(),
             'next_review': card.next_review.isoformat() if card.next_review else None,
-            'easiness_factor': card.easiness_factor,
-            'interval': card.interval,
-            'repetitions': card.repetitions,
-            'user_id': card.user_id
+            'repetitions': card.repetitions
         } for card in cards]
     })
 
@@ -289,11 +303,11 @@ def list_cards():
 @app.route('/api/cards', methods=['POST'])
 @require_api_key
 def sync_cards():
-    """Create or update cards from Google Sheets.
+    """Create new cards from Google Sheets without updating existing ones.
     
     Expected JSON format:
     {
-        'user_id': 1,
+        'username': 'user123',
         'cards': [
             {
                 'spanish': 'Question',
@@ -304,47 +318,42 @@ def sync_cards():
     }
     """
     data = request.get_json()
-    if not data or 'cards' not in data or 'user_id' not in data:
+    if not data or 'cards' not in data or 'username' not in data:
         return jsonify({'error': 'Invalid request format'}), 400
     
-    user = User.query.get(data['user_id'])
+    user = User.query.filter_by(username=data['username']).first()
     if not user:
         return jsonify({'error': 'User not found'}), 404
     
     created = 0
-    updated = 0
     
     for card_data in data['cards']:
         # Check required fields
         if 'spanish' not in card_data or 'english' not in card_data:
             continue
         
-        # Try to find existing card with same front
+        # Check if a card with the same spanish and english fields already exists
         card = Card.query.filter_by(
             user_id=user.id,
-            spanish=card_data['spanish']
+            spanish=card_data['spanish'],
+            english=card_data['english']
         ).first()
         
-        if card:
-            # Update existing card
-            card.english = card_data['english']
-            updated += 1
-        else:
-            # Create new card
-            card = Card(
+        if not card:
+            # Create a new card
+            new_card = Card(
                 user_id=user.id,
                 spanish=card_data['spanish'],
                 english=card_data['english']
             )
-            db.session.add(card)
+            db.session.add(new_card)
             created += 1
     
     try:
         db.session.commit()
         return jsonify({
             'success': True,
-            'created': created,
-            'updated': updated
+            'created': created
         })
     except Exception as e:
         db.session.rollback()
