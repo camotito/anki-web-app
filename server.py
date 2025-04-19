@@ -402,6 +402,7 @@ def import_cards(username, csv_file):
             return
         
         created = 0
+        skipped = 0
         with open(csv_file, 'r', encoding='utf-8') as f:
             # Read the header line to find the column indexes
             header = f.readline().strip().split(',')
@@ -425,25 +426,177 @@ def import_cards(username, csv_file):
                 if not spanish or not english:
                     continue
                 
-                if not Card.query.filter_by(
+                # Check if card already exists
+                existing_card = Card.query.filter_by(
+                    user_id=user.id,
+                    _spanish=Card.normalize_text(spanish),
+                    _english=Card.normalize_text(english)
+                ).first()
+                
+                if existing_card:
+                    skipped += 1
+                    continue
+                
+                # Create new card
+                card = Card(
                     user_id=user.id,
                     spanish=spanish,
-                    english=english
-                ).first():
-                    card = Card(
-                        user_id=user.id,
-                        spanish=spanish,
-                        english=english,
-                        spanish_definition=definition
-                    )
-                    db.session.add(card)
-                    created += 1
+                    english=english,
+                    spanish_definition=definition
+                )
+                db.session.add(card)
+                created += 1
+                
+                # Commit every 100 cards to avoid memory issues
+                if created % 100 == 0:
+                    db.session.commit()
         
+        # Final commit for remaining cards
         db.session.commit()
-        click.echo(f"Successfully imported {created} cards")
+        click.echo(f"Successfully imported {created} cards (skipped {skipped} duplicates)")
         
     except Exception as e:
         db.session.rollback()
+        click.echo(f"Error: {str(e)}")
+
+
+@app.cli.command("add-cards")
+@click.argument('username')
+def add_cards_interactive(username):
+    """Añadir tarjetas de forma interactiva para un usuario.
+    Pregunta por palabra en español, traducción y opcionalmente definición."""
+    try:
+        user = User.query.filter_by(username=username).first()
+        if not user:
+            click.echo(f"Usuario {username} no encontrado")
+            return
+        
+        added = 0
+        while True:
+            # Preguntar por la palabra en español
+            spanish = click.prompt('Palabra en español (deja vacío para terminar)', default='', show_default=False)
+            if not spanish:
+                break
+                
+            # Preguntar por la traducción
+            english = click.prompt('Traducción al inglés', type=str)
+            
+            # Preguntar por la definición (opcional)
+            if click.confirm('¿Quieres añadir una definición?', default=False):
+                definition = click.prompt('Definición en español', type=str)
+            else:
+                definition = None
+            
+            # Verificar si la tarjeta ya existe
+            existing_card = Card.query.filter_by(
+                user_id=user.id,
+                _spanish=Card.normalize_text(spanish),
+                _english=Card.normalize_text(english)
+            ).first()
+            
+            if existing_card:
+                click.echo(f"La tarjeta '{spanish} - {english}' ya existe")
+                continue
+            
+            # Crear nueva tarjeta
+            card = Card(
+                user_id=user.id,
+                spanish=spanish,
+                english=english,
+                spanish_definition=definition
+            )
+            db.session.add(card)
+            added += 1
+            
+            # Commit después de cada tarjeta
+            db.session.commit()
+            click.echo(f"Tarjeta añadida: {spanish} - {english}")
+        
+        click.echo(f"\nSe añadieron {added} tarjetas nuevas")
+        
+    except Exception as e:
+        db.session.rollback()
+        click.echo(f"Error: {str(e)}")
+
+@app.cli.command("list-cards")
+@click.argument('username')
+@click.option('--sort', type=click.Choice(['spanish', 'english', 'date']), default='date', 
+              help='Ordenar por: spanish (español), english (inglés) o date (fecha)')
+def list_cards_for_user(username, sort):
+    """Listar todas las tarjetas de un usuario."""
+    try:
+        user = User.query.filter_by(username=username).first()
+        if not user:
+            click.echo(f"Usuario {username} no encontrado")
+            return
+        
+        # Preparar la consulta base
+        query = Card.query.filter_by(user_id=user.id)
+        
+        # Aplicar ordenamiento
+        if sort == 'spanish':
+            query = query.order_by(Card._spanish)
+        elif sort == 'english':
+            query = query.order_by(Card._english)
+        else:  # date
+            query = query.order_by(Card.created_at.desc())
+        
+        cards = query.all()
+        
+        if not cards:
+            click.echo(f"No hay tarjetas para el usuario {username}")
+            return
+        
+        click.echo(f"\nTarjetas de {username} ({len(cards)} total):")
+        click.echo("-" * 60)
+        
+        for i, card in enumerate(cards, 1):
+            click.echo(f"{i}. {card.spanish} - {card.english}")
+            if card.spanish_definition:
+                click.echo(f"   Def: {card.spanish_definition}")
+        
+    except Exception as e:
+        click.echo(f"Error: {str(e)}")
+
+
+@app.cli.command("check-word")
+@click.argument('username')
+@click.argument('word')
+def check_word(username, word):
+    """Comprobar si una palabra en español ya existe para un usuario.
+    
+    Args:
+        username: Nombre del usuario
+        word: Palabra en español a buscar
+    """
+    try:
+        user = User.query.filter_by(username=username).first()
+        if not user:
+            click.echo(f"Usuario {username} no encontrado")
+            return
+        
+        # Normalizar la palabra buscada
+        normalized_word = Card.normalize_text(word)
+        
+        # Buscar la palabra
+        cards = Card.query.filter(
+            Card.user_id == user.id,
+            Card._spanish.ilike(f"%{normalized_word}%")  # Búsqueda parcial case-insensitive
+        ).all()
+        
+        if not cards:
+            click.echo(f"No se encontró la palabra '{word}' para el usuario {username}")
+            return
+        
+        click.echo(f"\nCoincidencias encontradas para '{word}':")
+        click.echo("-" * 60)
+        
+        for i, card in enumerate(cards, 1):
+            click.echo(f"{i}. {card.spanish} - {card.english}")
+            if card.spanish_definition:
+                click.echo(f"   Def: {card.spanish_definition}")
+        
+    except Exception as e:
         click.echo(f"Error: {str(e)}")
 
 

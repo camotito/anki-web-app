@@ -38,6 +38,7 @@ staticfiles/
 .DS_Store
 Thumbs.db
 
-# DB
+# DB and csv files
 migrations/
-scripts/*.csv
+*.csv
+.~*

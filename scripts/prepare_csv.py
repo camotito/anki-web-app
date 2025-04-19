@@ -209,8 +209,9 @@ def procesar_csv(archivo_entrada: str, archivo_salida: str):
     palabras_invertidas = 0
     definiciones_agregadas = 0
     traducciones_inferidas = 0
-    palabras_sin_traducir = []  # Lista para almacenar palabras que no se pudieron traducir
-    palabras_idioma_incorrecto = []  # Lista para almacenar (palabra, columna, idioma_detectado)
+    palabras_sin_traducir = []
+    palabras_idioma_incorrecto = []
+    pares_duplicados = {}  # Diccionario para almacenar pares duplicados
     
     # Verificar que el archivo existe y no está vacío
     if not os.path.exists(archivo_entrada):
@@ -238,8 +239,16 @@ def procesar_csv(archivo_entrada: str, archivo_salida: str):
         
         # Leemos todas las filas
         for row in reader:
-            palabra_esp = row[col_espanol].strip()
-            palabra_ing = row[col_ingles].strip()
+            palabra_esp = row[col_espanol].strip().lower()  # Normalizar para comparación
+            palabra_ing = row[col_ingles].strip().lower()  # Normalizar para comparación
+            
+            # Registrar pares de palabras para detectar duplicados
+            if palabra_esp and palabra_ing:
+                par_key = (palabra_esp, palabra_ing)
+                if par_key in pares_duplicados:
+                    pares_duplicados[par_key].append(row)
+                else:
+                    pares_duplicados[par_key] = [row]
             
             # Verificar idiomas cuando ambas palabras están presentes
             if palabra_esp and palabra_ing:
@@ -344,11 +353,28 @@ def procesar_csv(archivo_entrada: str, archivo_salida: str):
             # Escribir fila con definición
             writer.writerow(row)
     
+    # Mostrar resumen final de palabras duplicadas
+    duplicados = {k: v for k, v in pares_duplicados.items() if len(v) > 1}
+    if duplicados:
+        print("\n⚠️ Pares de palabras duplicados encontrados:")
+        for (esp, ing), ocurrencias in duplicados.items():
+            print(f"- '{esp} - {ing}' aparece {len(ocurrencias)} veces")
+        
+        # Guardar duplicados en un archivo separado
+        archivo_duplicados = archivo_salida.replace('.csv', '_duplicados.csv')
+        with open(archivo_duplicados, 'w', encoding='utf-8', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['Español', 'Inglés', 'Número de ocurrencias'])
+            for (esp, ing), ocurrencias in duplicados.items():
+                writer.writerow([esp, ing, len(ocurrencias)])
+        print(f"\nSe ha guardado la lista de palabras duplicadas en: {archivo_duplicados}")
+        
     # Mostrar resumen final
     print(f"\n📊 Resumen del procesamiento:")
     print(f"- Total de palabras procesadas: {len(palabras_procesadas)}")
     print(f"- Traducciones inferidas: {traducciones_inferidas}")
     print(f"- Definiciones nuevas agregadas: {definiciones_agregadas}")
+    print(f"- Pares de palabras duplicados: {len(duplicados)}")
     if palabras_invertidas > 0:
         print(f"- Pares de palabras invertidas: {palabras_invertidas}")
     
