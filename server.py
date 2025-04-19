@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from livereload import Server
 import requests
 import os
+import click
 
 
 app = Flask(__name__, static_folder='static', template_folder='templates')
@@ -40,8 +41,9 @@ class User(UserMixin, db.Model):
 
 class Card(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    spanish = db.Column(db.Text, nullable=False)  # Previously 'front'
-    english = db.Column(db.Text, nullable=False)  # Previously 'back'
+    _spanish = db.Column('spanish', db.Text, nullable=False)  # Previously 'front'
+    _english = db.Column('english', db.Text, nullable=False)  # Previously 'back'
+    spanish_definition = db.Column(db.Text, nullable=True)  # Definition in Spanish
     
     # SM2 Algorithm fields
     easiness_factor = db.Column(db.Float, default=2.5)  # Initial EF is 2.5
@@ -60,6 +62,34 @@ class Card(db.Model):
     __table_args__ = (
         db.UniqueConstraint('spanish', 'english', 'user_id', name='unique_card_per_user'),
     )
+    
+    @staticmethod
+    def normalize_text(text):
+        """Normaliza el texto para almacenamiento consistente."""
+        if text is None:
+            return None
+        # Convertir a minúsculas y eliminar espacios extra
+        return ' '.join(text.lower().split())
+    
+    @property
+    def spanish(self):
+        """Getter para spanish"""
+        return self._spanish
+    
+    @spanish.setter
+    def spanish(self, value):
+        """Setter para spanish que normaliza el texto"""
+        self._spanish = self.normalize_text(value)
+    
+    @property
+    def english(self):
+        """Getter para english"""
+        return self._english
+    
+    @english.setter
+    def english(self, value):
+        """Setter para english que normaliza el texto"""
+        self._english = self.normalize_text(value)
     
     def calculate_next_interval(self, quality):
         """Calculate the next interval using SM2 algorithm.
@@ -358,6 +388,63 @@ def sync_cards():
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
+
+
+@app.cli.command("import-cards")
+@click.argument('username')
+@click.argument('csv_file')
+def import_cards(username, csv_file):
+    """Import cards from CSV file for a user."""
+    try:
+        user = User.query.filter_by(username=username).first()
+        if not user:
+            click.echo(f"User {username} not found")
+            return
+        
+        created = 0
+        with open(csv_file, 'r', encoding='utf-8') as f:
+            # Read the header line to find the column indexes
+            header = f.readline().strip().split(',')
+            spanish_idx = next((i for i, col in enumerate(header) if 'español' in col.lower()), 0)
+            english_idx = next((i for i, col in enumerate(header) if 'ingles' in col.lower() or 'inglés' in col.lower()), 1)
+            definition_idx = next((i for i, col in enumerate(header) if 'definición' in col.lower() or 'definicion' in col.lower()), None)
+            
+            # Process each line
+            for line in f:
+                if ',' not in line:
+                    continue
+                
+                parts = line.strip().split(',')
+                if len(parts) <= max(spanish_idx, english_idx):
+                    continue
+                
+                spanish = parts[spanish_idx].strip()
+                english = parts[english_idx].strip()
+                definition = parts[definition_idx].strip() if definition_idx is not None and len(parts) > definition_idx else None
+                
+                if not spanish or not english:
+                    continue
+                
+                if not Card.query.filter_by(
+                    user_id=user.id,
+                    spanish=spanish,
+                    english=english
+                ).first():
+                    card = Card(
+                        user_id=user.id,
+                        spanish=spanish,
+                        english=english,
+                        spanish_definition=definition
+                    )
+                    db.session.add(card)
+                    created += 1
+        
+        db.session.commit()
+        click.echo(f"Successfully imported {created} cards")
+        
+    except Exception as e:
+        db.session.rollback()
+        click.echo(f"Error: {str(e)}")
 
 
 if __name__ == '__main__':
