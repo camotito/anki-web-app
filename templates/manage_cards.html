@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Gestionar Tarjetas</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .table-container {
+            max-height: 70vh;  /* 70% de la altura visible */
+            overflow-y: auto;  /* Hacer desplazable verticalmente */
+            margin-top: 20px;
+        }
+        .cards-table {
+            width: 100%;
+            border-collapse: collapse;
+            background-color: white;
+        }
+        .cards-table thead {
+            position: sticky;  /* Mantener cabeceras visibles */
+            top: 0;
+            background-color: #f5f5f5;
+            z-index: 1;
+        }
+        .cards-table th, .cards-table td {
+            padding: 10px;
+            border: 1px solid #ddd;
+            text-align: left;
+        }
+        .cards-table tr:nth-child(even) {
+            background-color: #fafafa;
+        }
+        .controls {
+            position: sticky;
+            top: 0;
+            background-color: white;
+            padding: 20px 0;
+            margin-bottom: 20px;
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            z-index: 2;
+        }
+        .search-bar {
+            flex: 1;
+        }
+        .search-bar input {
+            padding: 8px;
+            width: 300px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        select {
+            padding: 8px;
+            min-width: 200px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Gestionar Tarjetas</h1>
+        
+        <div class="controls">
+            <div class="user-select">
+                <select id="userSelect" onchange="changeUser(this.value)">
+                    {% for user in users %}
+                    <option value="{{ user.id }}" {% if user.id == selected_user_id %}selected{% endif %}>
+                        {{ user.username }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            
+            <div class="search-bar">
+                <input type="text" id="searchInput" placeholder="Buscar tarjetas..." onkeyup="filterTable()">
+            </div>
+        </div>
+
+        <div class="table-container">
+            <table class="cards-table" id="cardsTable">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Español</th>
+                        <th>Inglés</th>
+                        <th>Próxima revisión</th>
+                        <th>Repeticiones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for card in cards %}
+                    <tr>
+                        <td>{{ card.id }}</td>
+                        <td>{{ card.spanish }}</td>
+                        <td>{{ card.english }}</td>
+                        <td>{{ card.next_review.strftime('%Y-%m-%d %H:%M') }}</td>
+                        <td>{{ card.repetitions }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        function changeUser(userId) {
+            window.location.href = '/manage-cards?user_id=' + userId;
+        }
+
+        function filterTable() {
+            const input = document.getElementById('searchInput');
+            const filter = input.value.toLowerCase();
+            const table = document.getElementById('cardsTable');
+            const rows = table.getElementsByTagName('tr');
+
+            for (let i = 1; i < rows.length; i++) {
+                const spanish = rows[i].getElementsByTagName('td')[1];
+                const english = rows[i].getElementsByTagName('td')[2];
+                if (spanish && english) {
+                    const spanishText = spanish.textContent || spanish.innerText;
+                    const englishText = english.textContent || english.innerText;
+                    if (spanishText.toLowerCase().indexOf(filter) > -1 || 
+                        englishText.toLowerCase().indexOf(filter) > -1) {
+                        rows[i].style.display = '';
+                    } else {
+                        rows[i].style.display = 'none';
+                    }
+                }
+            }
+        }
+    </script>
+</body>
+</html>

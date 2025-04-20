@@ -211,10 +211,14 @@ def next_card():
     if not card:
         return jsonify({"error": "Card not found"}), 404
     
+    # Para depurar, imprime los valores
+    print(f"English: {card.english}")
+    print(f"Spanish: {card.spanish}")
+    
     return jsonify({
         "cardId": card.id,
-        "question": card.spanish,
-        "answer": card.english
+        "question": card.english.split('.')[0].strip(),  # Toma solo la primera oración
+        "answer": card.spanish.split('.')[0].strip(),    # Toma solo la primera oración
     })
 
 
@@ -395,6 +399,8 @@ def sync_cards():
 @click.argument('csv_file')
 def import_cards(username, csv_file):
     """Import cards from CSV file for a user."""
+    import csv  # Añadir esta línea si no está importado
+    
     try:
         user = User.query.filter_by(username=username).first()
         if not user:
@@ -403,30 +409,31 @@ def import_cards(username, csv_file):
         
         created = 0
         skipped = 0
+        
         with open(csv_file, 'r', encoding='utf-8') as f:
-            # Read the header line to find the column indexes
-            header = f.readline().strip().split(',')
-            spanish_idx = next((i for i, col in enumerate(header) if 'español' in col.lower()), 0)
-            english_idx = next((i for i, col in enumerate(header) if 'ingles' in col.lower() or 'inglés' in col.lower()), 1)
-            definition_idx = next((i for i, col in enumerate(header) if 'definición' in col.lower() or 'definicion' in col.lower()), None)
+            # Usar DictReader para manejar correctamente las comas en los campos
+            csv_reader = csv.DictReader(f)
             
-            # Process each line
-            for line in f:
-                if ',' not in line:
-                    continue
-                
-                parts = line.strip().split(',')
-                if len(parts) <= max(spanish_idx, english_idx):
-                    continue
-                
-                spanish = parts[spanish_idx].strip()
-                english = parts[english_idx].strip()
-                definition = parts[definition_idx].strip() if definition_idx is not None and len(parts) > definition_idx else None
+            # Encontrar las columnas en el CSV
+            fieldnames = csv_reader.fieldnames
+            spanish_col = next((col for col in fieldnames if 'español' in col.lower()), None)
+            english_col = next((col for col in fieldnames if 'ingles' in col.lower() or 'inglés' in col.lower()), None)
+            definition_col = next((col for col in fieldnames if 'definición' in col.lower() or 'definicion' in col.lower()), None)
+            
+            if not spanish_col or not english_col:
+                click.echo("Error: No se encontraron las columnas necesarias en el CSV")
+                return
+            
+            # Procesar cada línea
+            for row in csv_reader:
+                spanish = row[spanish_col].strip()
+                english = row[english_col].strip()
+                definition = row.get(definition_col, '').strip() if definition_col else None
                 
                 if not spanish or not english:
                     continue
                 
-                # Check if card already exists
+                # Verificar si la tarjeta ya existe
                 existing_card = Card.query.filter_by(
                     user_id=user.id,
                     _spanish=Card.normalize_text(spanish),
@@ -437,7 +444,7 @@ def import_cards(username, csv_file):
                     skipped += 1
                     continue
                 
-                # Create new card
+                # Crear nueva tarjeta
                 card = Card(
                     user_id=user.id,
                     spanish=spanish,
@@ -447,11 +454,12 @@ def import_cards(username, csv_file):
                 db.session.add(card)
                 created += 1
                 
-                # Commit every 100 cards to avoid memory issues
+                # Commit cada 100 tarjetas
                 if created % 100 == 0:
                     db.session.commit()
+                    click.echo(f"Processed {created} cards...")
         
-        # Final commit for remaining cards
+        # Commit final
         db.session.commit()
         click.echo(f"Successfully imported {created} cards (skipped {skipped} duplicates)")
         
@@ -600,11 +608,77 @@ def check_word(username, word):
         click.echo(f"Error: {str(e)}")
 
 
+@app.route('/manage-cards', methods=['GET'])
+@login_required
+def manage_cards():
+    """Vista de administración de tarjetas."""
+    # Obtener todos los usuarios para el selector
+    users = User.query.all()
+    
+    # Obtener el usuario seleccionado del query parameter
+    selected_user_id = request.args.get('user_id', type=int)
+    
+    # Si no hay usuario seleccionado, usar el usuario actual
+    if not selected_user_id:
+        selected_user_id = current_user.id
+    
+    # Obtener las tarjetas del usuario seleccionado
+    cards = Card.query.filter_by(user_id=selected_user_id)\
+                     .order_by(Card.created_at.desc())\
+                     .all()
+    
+    return render_template('manage_cards.html', 
+                         cards=cards, 
+                         users=users,
+                         selected_user_id=selected_user_id)
+
+
+@app.cli.command("delete-cards")
+@click.argument('username')
+@click.option('--force', is_flag=True, help='Skip confirmation prompt')
+def delete_user_cards(username, force):
+    """Borrar todas las tarjetas de un usuario específico."""
+    try:
+        user = User.query.filter_by(username=username).first()
+        if not user:
+            click.echo(f"Usuario {username} no encontrado")
+            return
+        
+        # Contar tarjetas del usuario
+        card_count = Card.query.filter_by(user_id=user.id).count()
+        
+        if card_count == 0:
+            click.echo(f"El usuario {username} no tiene tarjetas")
+            return
+        
+        # Confirmar borrado
+        if not force and not click.confirm(
+            f'¿Estás seguro de que quieres borrar todas las tarjetas ({card_count}) de {username}?'
+        ):
+            click.echo("Operación cancelada")
+            return
+        
+        # Borrar tarjetas
+        Card.query.filter_by(user_id=user.id).delete()
+        db.session.commit()
+        
+        click.echo(f"Se han borrado {card_count} tarjetas del usuario {username}")
+        
+    except Exception as e:
+        db.session.rollback()
+        click.echo(f"Error: {str(e)}")
+
+
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()
     
+    # Configura el servidor con debug=True
+    app.debug = True
+    
+    # Configura livereload
     server = Server(app.wsgi_app)
     server.watch('templates/')
     server.watch('static/')
-    server.serve(host='0.0.0.0', port=5000, debug=True)
+    server.watch('server.py')  # Añade esto para que observe cambios en server.py
+    server.serve(host='0.0.0.0', port=5000)
