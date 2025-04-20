@@ -669,6 +669,37 @@ def delete_user_cards(username, force):
         click.echo(f"Error: {str(e)}")
 
 
+@app.route('/api/cards/<int:card_id>', methods=['PUT'])
+@login_required
+def update_card(card_id):
+    """Update a card's fields."""
+    try:
+        print(f"Updating card {card_id}")  # Debug log
+        print(f"Request data: {request.json}")  # Debug log
+        
+        card = Card.query.get_or_404(card_id)
+        data = request.json
+        
+        card.spanish = data['spanish']
+        card.english = data['english']
+        
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'card': {
+                'id': card.id,
+                'spanish': card.spanish,
+                'english': card.english
+            }
+        })
+        
+    except Exception as e:
+        print(f"Error updating card: {str(e)}")  # Debug log
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()
