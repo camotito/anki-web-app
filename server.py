@@ -41,6 +41,7 @@ class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(120), nullable=False)
+    is_admin = db.Column(db.Boolean, default=False)  # Nuevo campo
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -282,6 +283,8 @@ def login():
 def index():
     if not current_user.is_authenticated:
         return redirect(url_for('login_page'))
+    if current_user.is_admin:
+        return redirect(url_for('manage_cards'))
     return redirect(url_for('practice_page'))
 
 @app.route('/login-page')
@@ -307,6 +310,17 @@ def require_api_key(f):
         return jsonify({'error': 'Invalid or missing API key'}), 401
     return decorated
 
+def admin_required(f):
+    """Decorator para rutas que requieren acceso de administrador."""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not current_user.is_authenticated or not current_user.is_admin:
+            if request.is_json:
+                return jsonify({'error': 'Admin access required'}), 403
+            else:
+                return redirect(url_for('practice_page'))  # Redirect normal users to practice page
+        return f(*args, **kwargs)
+    return decorated_function
 
 @app.route('/api/cards/<username>', methods=['GET'])
 @require_api_key
@@ -399,22 +413,22 @@ def sync_cards():
 
 @app.route('/manage-cards', methods=['GET'])
 @login_required
+@admin_required  # Agregar este decorador
 def manage_cards():
     """Vista de administración de tarjetas."""
-    # Obtener todos los usuarios para el selector
     users = User.query.all()
-    
-    # Obtener el usuario seleccionado del query parameter
     selected_user_id = request.args.get('user_id', type=int)
     
-    # Si no hay usuario seleccionado, usar el usuario actual
     if not selected_user_id:
-        selected_user_id = current_user.id
+        # Mostrar tarjetas del primer usuario por defecto
+        first_user = User.query.filter(User.is_admin.is_(False)).first()
+        selected_user_id = first_user.id if first_user else None
     
-    # Obtener las tarjetas del usuario seleccionado
-    cards = Card.query.filter_by(user_id=selected_user_id)\
-                     .order_by(Card.created_at.desc())\
-                     .all()
+    cards = []
+    if selected_user_id:
+        cards = Card.query.filter_by(user_id=selected_user_id)\
+                         .order_by(Card.created_at.desc())\
+                         .all()
     
     return render_template('manage_cards.html', 
                          cards=cards, 
@@ -424,6 +438,7 @@ def manage_cards():
 
 @app.route('/api/cards/<int:card_id>', methods=['PUT'])
 @login_required
+@admin_required  # Add this decorator to require admin privileges
 def update_card(card_id):
     try:
         data = request.json
@@ -432,10 +447,7 @@ def update_card(card_id):
             
         card = Card.query.get_or_404(card_id)
         
-        # Verificar que el usuario es dueño de la tarjeta
-        if card.user_id != current_user.id:
-            return jsonify({'error': 'Unauthorized'}), 403
-        
+        # Remove the user check since only admins can access this endpoint now
         card.spanish = data['spanish']
         card.english = data['english']
         

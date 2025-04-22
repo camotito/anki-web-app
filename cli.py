@@ -274,3 +274,27 @@ def list_users(show_cards):
                 
     except Exception as e:
         click.echo(f"Error: {str(e)}")
+
+@app.cli.command("create-user")
+@click.argument('username')
+@click.option('--password', prompt=True, hide_input=True, confirmation_prompt=True)
+@click.option('--admin', is_flag=True, help='Create user with admin privileges')
+def create_user(username, password, admin):
+    """Create a new user."""
+    try:
+        existing_user = User.query.filter_by(username=username).first()
+        if existing_user:
+            click.echo(f"Error: Username '{username}' already exists")
+            return
+
+        user = User(username=username, is_admin=admin)
+        user.set_password(password)
+        db.session.add(user)
+        db.session.commit()
+
+        user_type = "admin" if admin else "regular"
+        click.echo(f"Successfully created {user_type} user: {username}")
+
+    except Exception as e:
+        db.session.rollback()
+        click.echo(f"Error: {str(e)}")
