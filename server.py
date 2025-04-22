@@ -10,21 +10,33 @@ from livereload import Server
 import requests
 import os
 import click
+from dotenv import load_dotenv
+load_dotenv()  # Cargar variables de .env
 
 
 app = Flask(__name__, static_folder='static', template_folder='templates')
 CORS(app)
 
 # Database setup
-app.config['SECRET_KEY'] = 'your-secret-key-here'  # Change this to a secure secret key
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///users.db'
-app.config['API_KEY'] = 'your-secret-api-key-here'  # Change this to a secure API key
+# Cambiar estas claves por valores seguros y aleatorios
+app.config['SECRET_KEY'] = os.environ.get('FLASK_SECRET_KEY')
+app.config['API_KEY'] = os.environ.get('API_KEY')
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///users.db')
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
 
 # Login manager setup
 login_manager = LoginManager()
 login_manager.init_app(app)
+
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+
+limiter = Limiter(
+    get_remote_address,  # Remove app and change key_func to first argument
+    app=app,            # Pass app as a named parameter
+    default_limits=["200 per day", "50 per hour"]
+)
 
 # User model
 class User(UserMixin, db.Model):
@@ -84,7 +96,7 @@ class Card(db.Model):
     @property
     def english(self):
         """Getter para english"""
-        return self._english
+        return self._english    
     
     @english.setter
     def english(self, value):
@@ -161,7 +173,6 @@ def get_due_cards(user_id):
 @login_required
 def practice_page():
     """Render the practice page."""
-    # Get the next due card's date
     next_due = Card.query.filter(
         Card.user_id == current_user.id,
         Card.next_review > datetime.utcnow()
@@ -176,49 +187,53 @@ def practice_page():
 @login_required
 def start_practice():
     """Start a practice session by loading due cards."""
-    # Get cards that are due for review
     cards = get_due_cards(current_user.id)
     
     if not cards:
-        return jsonify({"error": "No cards due for review"}), 404
+        next_due = Card.query.filter(
+            Card.user_id == current_user.id,
+            Card.next_review > datetime.utcnow()
+        ).order_by(Card.next_review).first()
+        
+        return jsonify({
+            "error": "No cards due for review",
+            "next_review": next_due.next_review.isoformat() if next_due else None
+        }), 404
     
-    # Store the card IDs in the session
+    # Store card IDs in session
     session['practice_card_ids'] = [card.id for card in cards]
     session['current_card_index'] = 0
     
+    # Get first card data
+    first_card = cards[0]
+    
     return jsonify({
         "success": True,
-        "total_cards": len(cards)
+        "total_cards": len(cards),
+        "cardId": first_card.id,
+        "question": first_card.english.split('.')[0].strip(),
+        "answer": first_card.spanish.split('.')[0].strip()
     })
 
 
-@app.route('/next-card', methods=['GET'])
+@app.route('/next-card')
 @login_required
 def next_card():
     """Get the next card to review."""
-    # Get card IDs and current index from session
     card_ids = session.get('practice_card_ids', [])
     current_index = session.get('current_card_index', 0)
     
-    if not card_ids:
-        return jsonify({"error": "No cards due for review"}), 404
-    
-    if current_index >= len(card_ids):
+    if not card_ids or current_index >= len(card_ids):
         return jsonify({"error": "No more cards"}), 404
     
-    # Get the current card
     card = Card.query.get(card_ids[current_index])
     if not card:
         return jsonify({"error": "Card not found"}), 404
     
-    # Para depurar, imprime los valores
-    print(f"English: {card.english}")
-    print(f"Spanish: {card.spanish}")
-    
     return jsonify({
         "cardId": card.id,
-        "question": card.english.split('.')[0].strip(),  # Toma solo la primera oración
-        "answer": card.spanish.split('.')[0].strip(),    # Toma solo la primera oración
+        "question": card.english.split('.')[0].strip(),
+        "answer": card.spanish.split('.')[0].strip(),
     })
 
 
@@ -228,35 +243,25 @@ def answer_card():
     """Process the answer for a card using SM2 algorithm."""
     data = request.json
     card_id = data.get('cardId')
-    ease = data.get('ease')  # 1=Again, 2=Hard, 3=Good, 4=Easy
+    ease = data.get('ease')
     
-    # Get the card
     card = Card.query.get(card_id)
     if not card or card.user_id != current_user.id:
         return jsonify({"error": "Card not found"}), 404
     
-    # Map our 1-4 ease to SM2's 0-5 quality
-    quality_map = {
-        1: 0,  # Again -> Complete blackout
-        2: 3,  # Hard -> Correct with difficulty
-        3: 4,  # Good -> Correct with hesitation
-        4: 5   # Easy -> Perfect response
-    }
+    quality_map = {1: 0, 2: 3, 3: 4, 4: 5}
     quality = quality_map.get(ease, 0)
     
-    # Calculate next review date using SM2
     card.calculate_next_interval(quality)
-    
-    # Save changes
     db.session.commit()
     
-    # Move to next card
     session['current_card_index'] = session.get('current_card_index', 0) + 1
     
     return jsonify({"success": True})
 
 
 @app.route('/login', methods=['POST'])
+@limiter.limit("5 per minute")
 def login():
     data = request.json
     username = data.get('username')
@@ -299,7 +304,7 @@ def require_api_key(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         api_key = request.headers.get('X-API-Key')
-        if api_key and api_key == app.config['API_KEY']:
+        if (api_key and api_key == app.config['API_KEY']) or current_user.is_authenticated:
             return f(*args, **kwargs)
         return jsonify({'error': 'Invalid or missing API key'}), 401
     return decorated
@@ -394,6 +399,69 @@ def sync_cards():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/manage-cards', methods=['GET'])
+@login_required
+def manage_cards():
+    """Vista de administración de tarjetas."""
+    # Obtener todos los usuarios para el selector
+    users = User.query.all()
+    
+    # Obtener el usuario seleccionado del query parameter
+    selected_user_id = request.args.get('user_id', type=int)
+    
+    # Si no hay usuario seleccionado, usar el usuario actual
+    if not selected_user_id:
+        selected_user_id = current_user.id
+    
+    # Obtener las tarjetas del usuario seleccionado
+    cards = Card.query.filter_by(user_id=selected_user_id)\
+                     .order_by(Card.created_at.desc())\
+                     .all()
+    
+    return render_template('manage_cards.html', 
+                         cards=cards, 
+                         users=users,
+                         selected_user_id=selected_user_id)
+
+
+@app.route('/api/cards/<int:card_id>', methods=['PUT'])
+@login_required
+def update_card(card_id):
+    try:
+        data = request.json
+        if not data or not isinstance(data.get('spanish'), str) or not isinstance(data.get('english'), str):
+            return jsonify({'error': 'Invalid input data'}), 400
+            
+        card = Card.query.get_or_404(card_id)
+        
+        # Verificar que el usuario es dueño de la tarjeta
+        if card.user_id != current_user.id:
+            return jsonify({'error': 'Unauthorized'}), 403
+        
+        card.spanish = data['spanish']
+        card.english = data['english']
+        
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'card': {
+                'id': card.id,
+                'spanish': card.spanish,
+                'english': card.english
+            }
+        })
+        
+    except Exception as e:
+        print(f"Error updating card: {str(e)}")
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+    
+
+##################
+#CLI commands ####
+##################
+
 @app.cli.command("import-cards")
 @click.argument('username')
 @click.argument('csv_file')
@@ -466,7 +534,6 @@ def import_cards(username, csv_file):
     except Exception as e:
         db.session.rollback()
         click.echo(f"Error: {str(e)}")
-
 
 @app.cli.command("add-cards")
 @click.argument('username')
@@ -566,7 +633,6 @@ def list_cards_for_user(username, sort):
     except Exception as e:
         click.echo(f"Error: {str(e)}")
 
-
 @app.cli.command("check-word")
 @click.argument('username')
 @click.argument('word')
@@ -607,32 +673,6 @@ def check_word(username, word):
     except Exception as e:
         click.echo(f"Error: {str(e)}")
 
-
-@app.route('/manage-cards', methods=['GET'])
-@login_required
-def manage_cards():
-    """Vista de administración de tarjetas."""
-    # Obtener todos los usuarios para el selector
-    users = User.query.all()
-    
-    # Obtener el usuario seleccionado del query parameter
-    selected_user_id = request.args.get('user_id', type=int)
-    
-    # Si no hay usuario seleccionado, usar el usuario actual
-    if not selected_user_id:
-        selected_user_id = current_user.id
-    
-    # Obtener las tarjetas del usuario seleccionado
-    cards = Card.query.filter_by(user_id=selected_user_id)\
-                     .order_by(Card.created_at.desc())\
-                     .all()
-    
-    return render_template('manage_cards.html', 
-                         cards=cards, 
-                         users=users,
-                         selected_user_id=selected_user_id)
-
-
 @app.cli.command("delete-cards")
 @click.argument('username')
 @click.option('--force', is_flag=True, help='Skip confirmation prompt')
@@ -668,36 +708,63 @@ def delete_user_cards(username, force):
         db.session.rollback()
         click.echo(f"Error: {str(e)}")
 
-
-@app.route('/api/cards/<int:card_id>', methods=['PUT'])
-@login_required
-def update_card(card_id):
-    """Update a card's fields."""
+@app.cli.command("delete-user")
+@click.argument('username')
+@click.option('--force', is_flag=True, help='Skip confirmation prompt')
+def delete_user(username, force):
+    """Borrar un usuario y todas sus tarjetas asociadas."""
     try:
-        print(f"Updating card {card_id}")  # Debug log
-        print(f"Request data: {request.json}")  # Debug log
+        user = User.query.filter_by(username=username).first()
+        if not user:
+            click.echo(f"Usuario {username} no encontrado")
+            return
         
-        card = Card.query.get_or_404(card_id)
-        data = request.json
+        # Contar tarjetas del usuario
+        card_count = Card.query.filter_by(user_id=user.id).count()
         
-        card.spanish = data['spanish']
-        card.english = data['english']
+        # Confirmar borrado
+        if not force and not click.confirm(
+            f'¿Estás seguro de que quieres borrar el usuario {username} y sus {card_count} tarjetas?'
+        ):
+            click.echo("Operación cancelada")
+            return
         
+        # Borrar tarjetas y usuario
+        Card.query.filter_by(user_id=user.id).delete()
+        db.session.delete(user)
         db.session.commit()
         
-        return jsonify({
-            'success': True,
-            'card': {
-                'id': card.id,
-                'spanish': card.spanish,
-                'english': card.english
-            }
-        })
+        click.echo(f"Se ha borrado el usuario {username} y sus {card_count} tarjetas")
         
     except Exception as e:
-        print(f"Error updating card: {str(e)}")  # Debug log
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        click.echo(f"Error: {str(e)}")
+
+@app.cli.command("list-users")
+@click.option('--show-cards', is_flag=True, help='Show card count for each user')
+def list_users(show_cards):
+    """Listar todos los usuarios registrados."""
+    try:
+        users = User.query.order_by(User.username).all()
+        
+        if not users:
+            click.echo("No hay usuarios registrados")
+            return
+            
+        click.echo(f"\nUsuarios registrados ({len(users)} total):")
+        click.echo("-" * 40)
+        
+        for i, user in enumerate(users, 1):
+            if show_cards:
+                card_count = Card.query.filter_by(user_id=user.id).count()
+                click.echo(f"{i}. {user.username} ({card_count} tarjetas)")
+            else:
+                click.echo(f"{i}. {user.username}")
+                
+    except Exception as e:
+        click.echo(f"Error: {str(e)}")
+
+##########################
 
 
 if __name__ == '__main__':
