@@ -2,7 +2,7 @@ import click
 from flask.cli import with_appcontext
 from datetime import datetime
 import csv
-from server import app, db, User, Card
+from app import app, db, User, Card
 
 @app.cli.command("import-cards")
 @click.argument('username')

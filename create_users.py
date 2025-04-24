@@ -1,4 +1,4 @@
-from server import app, db, User
+from app import app, db, User
 
 def create_user(username, password):
     with app.app_context():

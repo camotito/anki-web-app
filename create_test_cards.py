@@ -1,4 +1,4 @@
-from server import app, db, User, Card
+from app import app, db, User, Card
 
 def create_test_cards(username):
     with app.app_context():
