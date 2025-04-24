@@ -6,7 +6,6 @@ from flask_login import LoginManager, UserMixin, login_user, login_required, cur
 from flask_migrate import Migrate
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta
-from livereload import Server
 import os
 from dotenv import load_dotenv
 load_dotenv()  # Cargar variables de .env
@@ -425,7 +424,7 @@ def manage_cards():
         selected_user_id = first_user.id if first_user else None
     
     cards = []
-    if selected_user_id:
+    if (selected_user_id):
         cards = Card.query.filter_by(user_id=selected_user_id)\
                          .order_by(Card.created_at.desc())\
                          .all()
@@ -473,13 +472,4 @@ from cli import *
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()
-    
-    # Configura el servidor con debug=True
-    app.debug = True
-    
-    # Configura livereload
-    server = Server(app.wsgi_app)
-    server.watch('templates/')
-    server.watch('static/')
-    server.watch('server.py')
-    server.serve(host='0.0.0.0', port=5000)
+    app.run(host='0.0.0.0', port=5000)

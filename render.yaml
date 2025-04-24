@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: anki-web
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: |
+      flask db upgrade
+      gunicorn server:app
+    envVars:
+      - key: FLASK_SECRET_KEY
+        generateValue: true
+      - key: API_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        value: sqlite:///prod.db
