@@ -4,6 +4,7 @@ services:
     env: python
     buildCommand: pip install -r requirements.txt
     startCommand: |
+      mkdir -p instance
       flask db upgrade
       gunicorn app:app
     envVars:

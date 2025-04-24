@@ -39,6 +39,5 @@ staticfiles/
 Thumbs.db
 
 # DB and csv files
-migrations/
 *.csv
 .~*
