@@ -5,7 +5,8 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: |
       mkdir -p instance
-      flask db upgrade
+      export FLASK_APP=app.py
+      python -m flask db upgrade
       gunicorn app:app
     envVars:
       - key: FLASK_SECRET_KEY
@@ -14,3 +15,5 @@ services:
         generateValue: true
       - key: DATABASE_URL
         value: sqlite:///prod.db
+      - key: FLASK_APP
+        value: app.py
