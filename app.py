@@ -466,6 +466,28 @@ def update_card(card_id):
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
+@app.route('/init-db', methods=['POST'])
+def init_db():
+    if request.headers.get('X-Admin-Key') != os.environ.get('ADMIN_INIT_KEY'):
+        return jsonify({'error': 'Unauthorized'}), 403
+        
+    try:
+        # Crear admin
+        admin = User(username='admin', is_admin=True)
+        admin.set_password('3u6490aK75')
+        db.session.add(admin)
+        
+        # Crear usuario de prueba
+        user = User(username='Vincent')
+        user.set_password('Pyskaty')
+        db.session.add(user)
+        
+        db.session.commit()
+        return jsonify({'message': 'Database initialized'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
 # Import CLI commands
 from cli import *
 
