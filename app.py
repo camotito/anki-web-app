@@ -15,10 +15,16 @@ app = Flask(__name__, static_folder='static', template_folder='templates')
 CORS(app)
 
 # Database setup
-# Cambiar estas claves por valores seguros y aleatorios
 app.config['SECRET_KEY'] = os.environ.get('FLASK_SECRET_KEY')
 app.config['API_KEY'] = os.environ.get('API_KEY')
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///users.db')
+
+# Ensure PostgreSQL URL is properly formatted
+database_url = os.environ.get('DATABASE_URL')
+if database_url and database_url.startswith("postgres://"):
+    database_url = database_url.replace("postgres://", "postgresql://", 1)
+
+app.config['SQLALCHEMY_DATABASE_URI'] = database_url or 'sqlite:///users.db'
+print(f"Using database URL: {app.config['SQLALCHEMY_DATABASE_URI']}")
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
 
