@@ -20,10 +20,13 @@ app.config['API_KEY'] = os.environ.get('API_KEY')
 
 # Ensure PostgreSQL URL is properly formatted
 database_url = os.environ.get('DATABASE_URL')
-if database_url and database_url.startswith("postgres://"):
+if not database_url:
+    raise ValueError("DATABASE_URL environment variable is required")
+
+if database_url.startswith("postgres://"):
     database_url = database_url.replace("postgres://", "postgresql://", 1)
 
-app.config['SQLALCHEMY_DATABASE_URI'] = database_url or 'sqlite:///users.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = database_url
 print(f"Using database URL: {app.config['SQLALCHEMY_DATABASE_URI']}")
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
