@@ -35,15 +35,6 @@ migrate = Migrate(app, db)
 login_manager = LoginManager()
 login_manager.init_app(app)
 
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
-
-limiter = Limiter(
-    get_remote_address,  # Remove app and change key_func to first argument
-    app=app,            # Pass app as a named parameter
-    default_limits=["200 per day", "50 per hour"]
-)
-
 # User model
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -268,7 +259,6 @@ def answer_card():
 
 
 @app.route('/login', methods=['POST'])
-@limiter.limit("5 per minute")
 def login():
     data = request.json
     username = data.get('username')
