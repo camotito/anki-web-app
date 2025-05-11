@@ -24,6 +24,8 @@ env/
 # Database
 *.sqlite3
 *.db
+*.dump
+
 
 # Static files generated during runtime
 staticfiles/
