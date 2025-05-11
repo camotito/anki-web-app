@@ -23,8 +23,8 @@ database_url = os.environ.get('DATABASE_URL')
 if not database_url:
     raise ValueError("DATABASE_URL environment variable is required")
 
-if database_url.startswith("postgres://"):
-    database_url = database_url.replace("postgres://", "postgresql://", 1)
+# Decode any URL-encoded characters and replace postgres:// with postgresql://
+database_url = database_url.replace("\\x3a", ":").replace("postgres://", "postgresql://")
 
 app.config['SQLALCHEMY_DATABASE_URI'] = database_url
 print(f"Using database URL: {app.config['SQLALCHEMY_DATABASE_URI']}")
