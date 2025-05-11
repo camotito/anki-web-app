@@ -298,3 +298,72 @@ def create_user(username, password, admin):
     except Exception as e:
         db.session.rollback()
         click.echo(f"Error: {str(e)}")
+
+@app.cli.command("import-users")
+@click.argument('csv_file')
+@click.option('--force', is_flag=True, help='Skip confirmation prompt')
+def import_users(csv_file, force):
+    """Import users from CSV file. Expected format: firstname,lastname with header row"""
+    try:
+        created = 0
+        skipped = 0
+        users_to_create = []
+
+        with open(csv_file, 'r', encoding='utf-8') as f:
+            csv_reader = csv.reader(f)
+            # Skip header row
+            next(csv_reader)
+            
+            for row in csv_reader:
+                if len(row) < 2:
+                    click.echo(f"Skipping invalid row: {row}")
+                    continue
+                    
+                firstname = row[0].strip()
+                lastname = row[1].strip()
+                
+                if not firstname or not lastname:
+                    continue
+                
+                # Use firstname as username with first letter capitalized
+                username = firstname.capitalize()
+                # Remove special characters and spaces
+                username = ''.join(c for c in username if c.isalnum())
+                
+                if User.query.filter_by(username=username).first():
+                    click.echo(f"User {username} already exists - skipping")
+                    skipped += 1
+                    continue
+                    
+                users_to_create.append((username, firstname, lastname))
+        
+        if not users_to_create:
+            click.echo("No valid users to import")
+            return
+            
+        if not force:
+            click.echo("\nUsers to be created:")
+            for username, firstname, lastname in users_to_create:
+                click.echo(f"- {username} (Password will be: {lastname})")
+            
+            if not click.confirm(f'\nCreate {len(users_to_create)} users?'):
+                click.echo("Operation cancelled")
+                return
+        
+        for username, firstname, lastname in users_to_create:
+            user = User(username=username)
+            user.set_password(lastname)  # Use lastname as password
+            db.session.add(user)
+            created += 1
+            
+            if created % 100 == 0:
+                db.session.commit()
+                click.echo(f"Processed {created} users...")
+        
+        db.session.commit()
+        click.echo(f"\nSuccessfully imported {created} users (skipped {skipped} duplicates)")
+        click.echo("Each user's password is their last name")
+        
+    except Exception as e:
+        db.session.rollback()
+        click.echo(f"Error: {str(e)}")
