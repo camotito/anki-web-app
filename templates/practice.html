@@ -106,10 +106,35 @@
             });
             const data = await response.json();
             if (data.success) {
-                loadNextCard();
+                // Verificar si la práctica está completa
+                if (data.isPracticeComplete) {
+                    document.getElementById('practice-content').classList.add('hidden');
+                    document.getElementById('practice-complete').classList.remove('hidden');
+                    return;
+                }
+                
+                // Si hay una siguiente tarjeta, mostrarla directamente
+                if (data.nextCard) {
+                    currentCardId = data.nextCard.cardId;
+                    document.getElementById('question').textContent = data.nextCard.question;
+                    document.getElementById('answer').textContent = data.nextCard.answer;
+                    resetCardUI();
+                } else {
+                    // Si por alguna razón no hay datos de la siguiente tarjeta pero la práctica no está completa
+                    loadNextCard();
+                }
             } else {
                 alert('Error submitting answer');
             }
+        }
+        
+        function resetCardUI() {
+            document.getElementById('front').classList.remove('hidden');
+            document.getElementById('back').classList.add('hidden');
+            document.getElementById('show-answer').classList.remove('hidden');
+            const answerButtons = document.getElementById('answer-buttons');
+            answerButtons.classList.add('hidden');
+            answerButtons.style.display = 'none';
         }
 
         // Start practice when page loads

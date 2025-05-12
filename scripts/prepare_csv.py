@@ -24,105 +24,6 @@ if not api_key:
 # Configurar el cliente de OpenAI con la API key
 openai.api_key = api_key
 
-def generar_definicion_rae(palabra: str, traduccion: str, tipo: Optional[str] = None, ejemplo: Optional[str] = None) -> Tuple[str, Optional[str]]:
-    """
-    Genera una definición estilo RAE para una palabra en español usando la API de OpenAI.
-    
-    Args:
-        palabra: La palabra en español
-        traduccion: La traducción al inglés
-        tipo: La categoría gramatical (opcional)
-        ejemplo: Un ejemplo de uso (opcional)
-        
-    Returns:
-        Tuple con (definición generada, tipo inferido si no se proporcionó)
-    """
-    # Determinar si necesitamos inferir el tipo
-    inferir_tipo = tipo is None or tipo.strip() == ""
-    
-    # Construir el prompt según la disponibilidad de información
-    sistema_prompt = "Eres un lexicógrafo especializado en crear definiciones precisas y concisas en español, siguiendo el estilo del diccionario de la Real Academia Española."
-    
-    if inferir_tipo and ejemplo:
-        prompt = f"""
-        Para la palabra en español "{palabra}" (traducción al inglés: "{traduccion}"):
-        
-        1. Determina la categoría gramatical (sustantivo, adjetivo, verbo, adverbio, etc.) basándote en este ejemplo: "{ejemplo}"
-        
-        2. Proporciona una definición formal al estilo del diccionario de la RAE, considerando la categoría gramatical y el contexto del ejemplo.
-        
-        Formato requerido de respuesta:
-        TIPO: [categoría gramatical]
-        DEFINICIÓN: [definición concisa]
-        """
-    elif inferir_tipo:
-        prompt = f"""
-        Para la palabra en español "{palabra}" (traducción al inglés: "{traduccion}"):
-        
-        1. Determina la categoría gramatical más probable (sustantivo, adjetivo, verbo, adverbio, etc.)
-        
-        2. Proporciona una definición formal al estilo del diccionario de la RAE, considerando la categoría gramatical determinada.
-        
-        Formato requerido de respuesta:
-        TIPO: [categoría gramatical]
-        DEFINICIÓN: [definición concisa]
-        """
-    elif ejemplo:
-        prompt = f"""
-        Genera una definición formal al estilo del diccionario de la RAE para la palabra en español "{palabra}" (traducción al inglés: "{traduccion}").
-        
-        La palabra es un/una {tipo}.
-        
-        Utiliza este ejemplo para entender el contexto exacto: "{ejemplo}"
-        
-        Proporciona solo la definición breve y concisa que se ajuste al tipo de palabra y al ejemplo proporcionado.
-        """
-    else:
-        prompt = f"""
-        Genera una definición formal al estilo del diccionario de la RAE para la palabra en español "{palabra}" (traducción al inglés: "{traduccion}").
-        
-        La palabra es un/una {tipo}.
-        
-        Proporciona solo la definición breve y concisa que se ajuste al tipo de palabra indicado.
-        """
-    
-    # Llamada a la API de OpenAI
-    try:
-        response = openai.chat.completions.create(
-            model="gpt-4-turbo",  # Puedes usar "gpt-3.5-turbo" si prefieres
-            messages=[
-                {"role": "system", "content": sistema_prompt},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.3,  # Baja temperatura para respuestas más consistentes
-            max_tokens=150
-        )
-        
-        response_text = response.choices[0].message.content.strip()
-        
-        # Procesar la respuesta según el formato
-        if inferir_tipo:
-            # Intentar extraer tipo y definición
-            tipo_inferido = None
-            definicion = response_text
-            
-            # Buscar formato "TIPO: ... DEFINICIÓN: ..."
-            if "TIPO:" in response_text and "DEFINICIÓN:" in response_text:
-                partes = response_text.split("DEFINICIÓN:", 1)
-                if len(partes) == 2:
-                    tipo_parte = partes[0].strip()
-                    tipo_inferido = tipo_parte.replace("TIPO:", "").strip()
-                    definicion = partes[1].strip()
-            
-            return definicion, tipo_inferido
-        else:
-            # Si ya teníamos el tipo, solo devolvemos la definición
-            return response_text, None
-            
-    except Exception as e:
-        print(f"Error al generar definición para '{palabra}': {str(e)}")
-        return f"Error: No se pudo generar definición ({str(e)})", None
-
 def es_palabra_espanola(palabra: str) -> Tuple[bool, str]:
     """
     Detecta si una palabra está en español y devuelve el idioma detectado.
@@ -207,7 +108,7 @@ def procesar_csv(archivo_entrada: str, archivo_salida: str):
     """
     palabras_procesadas = []
     palabras_invertidas = 0
-    definiciones_agregadas = 0
+    # Ya no contamos definiciones agregadas
     traducciones_inferidas = 0
     palabras_sin_traducir = []
     palabras_idioma_incorrecto = []
@@ -235,7 +136,7 @@ def procesar_csv(archivo_entrada: str, archivo_salida: str):
         col_ingles = next((col for col in fieldnames if col.lower() in ['inglés', 'ingles', 'english', 'traduccion', 'traducción']), fieldnames[1])
         col_tipo = next((col for col in fieldnames if col.lower() in ['tipo', 'type', 'categoría', 'categoria', 'gramática', 'gramatica']), None)
         col_ejemplo = next((col for col in fieldnames if col.lower() in ['ejemplo', 'example', 'contexto']), None)
-        col_definicion = next((col for col in fieldnames if col.lower() in ['definición rae', 'definicion rae', 'definición', 'definicion']), 'Definición RAE')
+        # Ya no buscamos columna de definición
         
         # Leemos todas las filas
         for row in reader:
@@ -298,9 +199,7 @@ def procesar_csv(archivo_entrada: str, archivo_salida: str):
     # Preparar los nombres de columna para el archivo de salida
     nuevo_fieldnames = list(fieldnames)  # Copiar los campos existentes
     
-    # Añadir columna de definición si no existe
-    if col_definicion not in nuevo_fieldnames:
-        nuevo_fieldnames.append(col_definicion)
+    # Ya no añadimos columna de definición
     
     # Asegurarnos de tener columna de tipo si no existe
     if col_tipo is None:
@@ -321,29 +220,8 @@ def procesar_csv(archivo_entrada: str, archivo_salida: str):
             tipo = row.get(col_tipo, '').strip() if col_tipo in row else ''
             ejemplo = row.get(col_ejemplo, '').strip() if col_ejemplo in row and col_ejemplo else ''
             
-            # Verificar si ya existe una definición
-            definicion_existente = row.get(col_definicion, '').strip()
-            
-            # Solo procesar si tenemos la palabra, su traducción y NO tiene definición
-            if palabra and traduccion and not definicion_existente:
-                print(f"Procesando {i+1}/{len(palabras_procesadas)}: {palabra}")
-                
-                # Generar definición (y posiblemente inferir tipo)
-                definicion, tipo_inferido = generar_definicion_rae(palabra, traduccion, tipo, ejemplo)
-                
-                # Añadir definición a la fila
-                row[col_definicion] = definicion
-                definiciones_agregadas += 1
-                
-                # Si se infirió un tipo y no teníamos uno, lo añadimos
-                if tipo_inferido and (not tipo or tipo.strip() == ''):
-                    row[col_tipo] = tipo_inferido
-                    print(f"  → Tipo inferido: {tipo_inferido}")
-                
-                # Pausa para no sobrecargar la API
-                time.sleep(1)
-            elif not palabra or not traduccion:
-                row[col_definicion] = ''
+            # Ya no procesamos definiciones
+            print(f"Procesando {i+1}/{len(palabras_procesadas)}: {palabra}")
             
             # Asegurarse de que todas las columnas existan en la fila
             for field in nuevo_fieldnames:
@@ -373,7 +251,7 @@ def procesar_csv(archivo_entrada: str, archivo_salida: str):
     print(f"\n📊 Resumen del procesamiento:")
     print(f"- Total de palabras procesadas: {len(palabras_procesadas)}")
     print(f"- Traducciones inferidas: {traducciones_inferidas}")
-    print(f"- Definiciones nuevas agregadas: {definiciones_agregadas}")
+    # Ya no mostramos definiciones agregadas
     print(f"- Pares de palabras duplicados: {len(duplicados)}")
     if palabras_invertidas > 0:
         print(f"- Pares de palabras invertidas: {palabras_invertidas}")
@@ -406,7 +284,7 @@ def procesar_csv(archivo_entrada: str, archivo_salida: str):
             print(f"\nSe ha guardado la lista de palabras sin traducir en: {archivo_sin_traducir}")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Procesa un archivo CSV de palabras y genera definiciones RAE')
+    parser = argparse.ArgumentParser(description='Procesa un archivo CSV de palabras en español e inglés')
     parser.add_argument('archivo_entrada', help='Ruta del archivo CSV de entrada')
     parser.add_argument('archivo_salida', help='Ruta donde guardar el archivo CSV con definiciones')
     args = parser.parse_args()

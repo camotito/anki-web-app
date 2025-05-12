@@ -238,7 +238,7 @@ def next_card():
 @app.route('/answer-card', methods=['POST'])
 @login_required
 def answer_card():
-    """Process the answer for a card using SM2 algorithm."""
+    """Process the answer for a card using SM2 algorithm and return the next card."""
     data = request.json
     card_id = data.get('cardId')
     ease = data.get('ease')
@@ -250,12 +250,38 @@ def answer_card():
     quality_map = {1: 0, 2: 3, 3: 4, 4: 5}
     quality = quality_map.get(ease, 0)
     
+    # Actualizar la tarjeta actual
     card.calculate_next_interval(quality)
+    
+    # Incrementar el índice para la siguiente tarjeta
+    session['current_card_index'] = session.get('current_card_index', 0) + 1
+    current_index = session.get('current_card_index', 0)
+    card_ids = session.get('practice_card_ids', [])
+    
+    # Preparar datos de la siguiente tarjeta (si existe)
+    next_card_data = None
+    is_practice_complete = False
+    
+    if card_ids and current_index < len(card_ids):
+        next_card = Card.query.get(card_ids[current_index])
+        if next_card:
+            next_card_data = {
+                "cardId": next_card.id,
+                "question": next_card.english.split('.')[0].strip(),
+                "answer": next_card.spanish.split('.')[0].strip(),
+            }
+    else:
+        # No hay más tarjetas en la sesión actual
+        is_practice_complete = True
+    
+    # Guardar los cambios en la base de datos
     db.session.commit()
     
-    session['current_card_index'] = session.get('current_card_index', 0) + 1
-    
-    return jsonify({"success": True})
+    return jsonify({
+        "success": True,
+        "nextCard": next_card_data,
+        "isPracticeComplete": is_practice_complete
+    })
 
 
 @app.route('/login', methods=['POST'])
