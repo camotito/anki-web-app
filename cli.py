@@ -367,3 +367,12 @@ def import_users(csv_file, force):
     except Exception as e:
         db.session.rollback()
         click.echo(f"Error: {str(e)}")
+
+@app.cli.command("list-env")
+def list_env():
+    """List environment variables used by the application"""
+    click.echo("\nEnvironment Variables:")
+    click.echo("-" * 40)
+    click.echo(f"FLASK_SECRET_KEY: {app.config['SECRET_KEY']}")
+    click.echo(f"DATABASE_URL: {app.config['SQLALCHEMY_DATABASE_URI']}")
+    click.echo(f"API_KEY: {app.config['API_KEY']}")
