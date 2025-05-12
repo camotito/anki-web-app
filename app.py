@@ -238,49 +238,64 @@ def next_card():
 @app.route('/answer-card', methods=['POST'])
 @login_required
 def answer_card():
-    """Process the answer for a card using SM2 algorithm and return the next card."""
+    """Procesa la respuesta para una tarjeta usando el algoritmo SM2.
+    
+    Esta función actualiza el intervalo de repetición de la tarjeta basado en la dificultad
+    seleccionada por el usuario. Ya no es responsable de gestionar la navegación entre tarjetas,
+    ya que eso ahora se maneja en el cliente.
+    """
     data = request.json
     card_id = data.get('cardId')
     ease = data.get('ease')
     
+    # Verificar que la tarjeta existe y pertenece al usuario actual
     card = Card.query.get(card_id)
     if not card or card.user_id != current_user.id:
         return jsonify({"error": "Card not found"}), 404
     
+    # Mapear la dificultad seleccionada por el usuario al valor de calidad del algoritmo SM2
     quality_map = {1: 0, 2: 3, 3: 4, 4: 5}
     quality = quality_map.get(ease, 0)
     
-    # Actualizar la tarjeta actual
+    # Guardar valores anteriores para comparación
+    old_easiness = card.easiness_factor
+    old_interval = card.interval
+    old_repetitions = card.repetitions
+    old_next_review = card.next_review
+    
+    # Actualizar la tarjeta con el algoritmo SM2
     card.calculate_next_interval(quality)
     
-    # Incrementar el índice para la siguiente tarjeta
+    # Incrementar el índice para la siguiente tarjeta en la sesión
     session['current_card_index'] = session.get('current_card_index', 0) + 1
-    current_index = session.get('current_card_index', 0)
-    card_ids = session.get('practice_card_ids', [])
-    
-    # Preparar datos de la siguiente tarjeta (si existe)
-    next_card_data = None
-    is_practice_complete = False
-    
-    if card_ids and current_index < len(card_ids):
-        next_card = Card.query.get(card_ids[current_index])
-        if next_card:
-            next_card_data = {
-                "cardId": next_card.id,
-                "question": next_card.english.split('.')[0].strip(),
-                "answer": next_card.spanish.split('.')[0].strip(),
-            }
-    else:
-        # No hay más tarjetas en la sesión actual
-        is_practice_complete = True
     
     # Guardar los cambios en la base de datos
     db.session.commit()
     
+    # Preparar información sobre la actualización para verificación
+    card_update_info = {
+        "card_id": card.id,
+        "spanish": card.spanish,
+        "english": card.english,
+        "quality": quality,
+        "old_values": {
+            "easiness_factor": old_easiness,
+            "interval": old_interval,
+            "repetitions": old_repetitions,
+            "next_review": old_next_review.isoformat() if old_next_review else None
+        },
+        "new_values": {
+            "easiness_factor": card.easiness_factor,
+            "interval": card.interval,
+            "repetitions": card.repetitions,
+            "next_review": card.next_review.isoformat() if card.next_review else None
+        }
+    }
+    
+    # Responder con éxito e información sobre la actualización
     return jsonify({
         "success": True,
-        "nextCard": next_card_data,
-        "isPracticeComplete": is_practice_complete
+        "card_update": card_update_info
     })
 
 
@@ -524,7 +539,12 @@ def get_card_batch():
     batch_size = min(5, len(card_ids) - current_index)
     
     if batch_size <= 0:
-        return jsonify({"cards": [], "remainingCards": 0})
+        return jsonify({
+            "cards": [], 
+            "remainingCards": 0,
+            "totalCards": len(card_ids),
+            "currentIndex": current_index
+        })
     
     # Obtener las tarjetas en un solo query para optimizar
     batch_ids = card_ids[current_index:current_index + batch_size]
@@ -541,7 +561,9 @@ def get_card_batch():
     
     return jsonify({
         "cards": formatted_cards,
-        "remainingCards": len(card_ids) - current_index - batch_size
+        "remainingCards": len(card_ids) - current_index - batch_size,
+        "totalCards": len(card_ids),
+        "currentIndex": current_index
     })
 
 # Import CLI commands
