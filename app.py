@@ -513,6 +513,37 @@ def init_db():
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
+@app.route('/card-batch')
+@login_required
+def get_card_batch():
+    """Get a batch of cards for the client to preload."""
+    card_ids = session.get('practice_card_ids', [])
+    current_index = session.get('current_card_index', 0)
+    
+    # Determinar cuántas tarjetas devolver (máximo 5)
+    batch_size = min(5, len(card_ids) - current_index)
+    
+    if batch_size <= 0:
+        return jsonify({"cards": [], "remainingCards": 0})
+    
+    # Obtener las tarjetas en un solo query para optimizar
+    batch_ids = card_ids[current_index:current_index + batch_size]
+    cards = Card.query.filter(Card.id.in_(batch_ids)).all()
+    
+    # Formatear las tarjetas para la respuesta
+    formatted_cards = []
+    for card in cards:
+        formatted_cards.append({
+            "cardId": card.id,
+            "question": card.english.split('.')[0].strip(),
+            "answer": card.spanish.split('.')[0].strip(),
+        })
+    
+    return jsonify({
+        "cards": formatted_cards,
+        "remainingCards": len(card_ids) - current_index - batch_size
+    })
+
 # Import CLI commands
 from cli import *
 

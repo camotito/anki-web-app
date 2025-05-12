@@ -48,17 +48,65 @@
 
     <script>
         let currentCardId = null;
+        let cardQueue = []; // Cola de tarjetas precargadas
 
         async function startPractice() {
             const response = await fetch('/start-practice');
             const data = await response.json();
             if (data.success) {
-                loadNextCard();
+                // Cargar un lote de tarjetas inmediatamente
+                await loadCardBatch();
+                // Mostrar la primera tarjeta
+                showNextCardFromQueue();
             } else if (data.error === "No cards due for review") {
                 document.getElementById('practice-content').classList.add('hidden');
                 document.getElementById('no-cards-due').classList.remove('hidden');
             } else {
                 alert('Error: ' + data.error);
+            }
+        }
+
+        async function loadCardBatch() {
+            try {
+                console.log("🔄 Solicitando nuevo lote de tarjetas...");
+                const response = await fetch('/card-batch');
+                const data = await response.json();
+                if (response.ok) {
+                    // Añadir las nuevas tarjetas a la cola
+                    cardQueue = cardQueue.concat(data.cards);
+                    console.log(`✅ Lote cargado: ${data.cards.length} tarjetas añadidas a la cola. Total en cola: ${cardQueue.length}`);
+                    console.log(`ℹ️ Tarjetas restantes por cargar: ${data.remainingCards}`);
+                    return data.remainingCards > 0;
+                }
+                return false;
+            } catch (error) {
+                console.error("❌ Error loading card batch:", error);
+                return false;
+            }
+        }
+
+        function showNextCardFromQueue() {
+            if (cardQueue.length === 0) {
+                // Si la cola está vacía, intentar cargar más tarjetas
+                console.log("⚠️ Cola vacía, cargando tarjeta directamente del servidor...");
+                loadNextCard();
+                return;
+            }
+            
+            // Tomar la primera tarjeta de la cola
+            const nextCard = cardQueue.shift();
+            console.log(`🎴 Mostrando tarjeta desde la cola. ID: ${nextCard.cardId}. Quedan ${cardQueue.length} en cola.`);
+            
+            // Actualizar la UI con la tarjeta
+            currentCardId = nextCard.cardId;
+            document.getElementById('question').textContent = nextCard.question;
+            document.getElementById('answer').textContent = nextCard.answer;
+            resetCardUI();
+            
+            // Si la cola está casi vacía (menos de 2 tarjetas), cargar más en segundo plano
+            if (cardQueue.length < 2) {
+                console.log("⚠️ Cola casi vacía (menos de 2 tarjetas), solicitando más en segundo plano...");
+                loadCardBatch();
             }
         }
 
@@ -94,6 +142,7 @@
         });
 
         async function answerCard(ease) {
+            console.log(`📝 Respondiendo tarjeta ${currentCardId} con dificultad: ${ease}`);
             const response = await fetch('/answer-card', {
                 method: 'POST',
                 headers: {
@@ -108,22 +157,35 @@
             if (data.success) {
                 // Verificar si la práctica está completa
                 if (data.isPracticeComplete) {
+                    console.log("🎉 Práctica completa. No hay más tarjetas para revisar.");
                     document.getElementById('practice-content').classList.add('hidden');
                     document.getElementById('practice-complete').classList.remove('hidden');
                     return;
                 }
                 
-                // Si hay una siguiente tarjeta, mostrarla directamente
-                if (data.nextCard) {
+                // Si tenemos tarjetas en la cola, usar la siguiente de la cola
+                if (cardQueue.length > 0) {
+                    console.log("✅ Usando siguiente tarjeta de la cola local");
+                    showNextCardFromQueue();
+                }
+                // Si no hay tarjetas en la cola pero hay una tarjeta en la respuesta, usarla
+                else if (data.nextCard) {
+                    console.log("ℹ️ Cola vacía, usando tarjeta de la respuesta del servidor");
                     currentCardId = data.nextCard.cardId;
                     document.getElementById('question').textContent = data.nextCard.question;
                     document.getElementById('answer').textContent = data.nextCard.answer;
                     resetCardUI();
+                    
+                    // Intentar cargar más tarjetas en segundo plano
+                    console.log("🔄 Solicitando más tarjetas en segundo plano...");
+                    loadCardBatch();
                 } else {
                     // Si por alguna razón no hay datos de la siguiente tarjeta pero la práctica no está completa
+                    console.log("⚠️ No hay tarjeta en la respuesta, intentando cargar del servidor...");
                     loadNextCard();
                 }
             } else {
+                console.error("❌ Error al enviar respuesta:", data.error);
                 alert('Error submitting answer');
             }
         }
