@@ -1,15 +1,15 @@
 from flask import Flask, jsonify, request, render_template, redirect, url_for, session
 from functools import wraps
 from flask_cors import CORS
-from flask_sqlalchemy import SQLAlchemy
-from flask_login import LoginManager, UserMixin, login_user, login_required, current_user, logout_user
-from flask_migrate import Migrate
-from werkzeug.security import generate_password_hash, check_password_hash
+from flask_login import LoginManager, login_user, login_required, current_user, logout_user
 from datetime import datetime, timedelta
 import os
 from dotenv import load_dotenv
-load_dotenv()  # Cargar variables de .env
+from models import db, init_db
+from models.user import User
+from models.card import Card
 
+load_dotenv()
 
 app = Flask(__name__, static_folder='static', template_folder='templates')
 CORS(app)
@@ -28,114 +28,12 @@ database_url = database_url.replace("\\x3a", ":").replace("postgres://", "postgr
 
 app.config['SQLALCHEMY_DATABASE_URI'] = database_url
 print(f"Using database URL: {app.config['SQLALCHEMY_DATABASE_URI']}")
-db = SQLAlchemy(app)
-migrate = Migrate(app, db)
+init_db(app)
 
 # Login manager setup
 login_manager = LoginManager()
 login_manager.init_app(app)
 
-# User model
-class User(UserMixin, db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(80), unique=True, nullable=False)
-    password_hash = db.Column(db.String(120), nullable=False)
-    is_admin = db.Column(db.Boolean, default=False)  # Nuevo campo
-
-    def set_password(self, password):
-        self.password_hash = generate_password_hash(password)
-
-    def check_password(self, password):
-        return check_password_hash(self.password_hash, password)
-
-
-class Card(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    _spanish = db.Column('spanish', db.Text, nullable=False)  # Previously 'front'
-    _english = db.Column('english', db.Text, nullable=False)  # Previously 'back'
-    spanish_definition = db.Column(db.Text, nullable=True)  # Definition in Spanish
-    
-    # SM2 Algorithm fields
-    easiness_factor = db.Column(db.Float, default=2.5)  # Initial EF is 2.5
-    interval = db.Column(db.Integer, default=0)         # Days between reviews
-    repetitions = db.Column(db.Integer, default=0)      # Number of times reviewed
-    next_review = db.Column(db.DateTime, default=datetime.utcnow)  # Next review date
-    
-    # Relationships
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    user = db.relationship('User', backref=db.backref('cards', lazy=True))
-    
-    # Metadata
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
-    __table_args__ = (
-        db.UniqueConstraint('spanish', 'english', 'user_id', name='unique_card_per_user'),
-    )
-    
-    @staticmethod
-    def normalize_text(text):
-        """Normaliza el texto para almacenamiento consistente."""
-        if text is None:
-            return None
-        # Convertir a minúsculas y eliminar espacios extra
-        return ' '.join(text.lower().split())
-    
-    @property
-    def spanish(self):
-        """Getter para spanish"""
-        return self._spanish
-    
-    @spanish.setter
-    def spanish(self, value):
-        """Setter para spanish que normaliza el texto"""
-        self._spanish = self.normalize_text(value)
-    
-    @property
-    def english(self):
-        """Getter para english"""
-        return self._english    
-    
-    @english.setter
-    def english(self, value):
-        """Setter para english que normaliza el texto"""
-        self._english = self.normalize_text(value)
-    
-    def calculate_next_interval(self, quality):
-        """Calculate the next interval using SM2 algorithm.
-        
-        Args:
-            quality (int): Rating from 0 to 5
-                0 = complete blackout
-                1 = incorrect response; the correct one remembered
-                2 = incorrect response; where the correct one seemed easy to recall
-                3 = correct response recalled with serious difficulty
-                4 = correct response after a hesitation
-                5 = perfect response
-        """
-        # Update easiness factor
-        self.easiness_factor = max(
-            1.3,  # Minimum EF
-            self.easiness_factor + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02))
-        )
-        
-        # Update interval
-        if quality < 3:
-            # Reset repetitions if answer was wrong
-            self.repetitions = 0
-            self.interval = 1
-        else:
-            self.repetitions += 1
-            if self.repetitions == 1:
-                self.interval = 1
-            elif self.repetitions == 2:
-                self.interval = 6
-            else:
-                self.interval = round(self.interval * self.easiness_factor)
-        
-        # Calculate next review date
-        self.next_review = datetime.utcnow() + timedelta(days=self.interval)
-        return self.next_review
 
 @login_manager.user_loader
 def load_user(user_id):
